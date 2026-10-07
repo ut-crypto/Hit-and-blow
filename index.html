@@ -1,0 +1,89 @@
+<!doctype html>
+<html lang="ja">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Hit &amp; Blow 5</title>
+  <link rel="stylesheet" href="style.css">
+  <script src="https://unpkg.com/peerjs@1.5.4/dist/peerjs.min.js" defer></script>
+  <script src="game.js" defer></script>
+</head>
+<body>
+  <main id="app">
+    <header>
+      <h1>Hit &amp; Blow <span class="badge">5</span></h1>
+    </header>
+
+    <!-- メニュー -->
+    <section id="screen-menu" class="screen">
+      <p class="lead">0〜9 の重複なし5桁の数字を当てる推理ゲーム</p>
+
+      <div class="card">
+        <h2>ひとりで練習</h2>
+        <p class="note">CPU が決めた数字を当てます。</p>
+        <button id="btn-solo" class="primary">スタート</button>
+      </div>
+
+      <div class="card">
+        <h2>オンライン対戦</h2>
+        <p class="note">相手と同じルームキーを入力して入室してください。先に入った人がルームを作成します。</p>
+        <div class="row">
+          <input id="room-key" type="text" placeholder="ルームキー(例: neko123)" maxlength="32" autocomplete="off">
+          <button id="btn-join" class="primary">入室</button>
+        </div>
+        <p id="online-status" class="status"></p>
+        <button id="btn-copy-link" class="ghost hidden">招待リンクをコピー</button>
+        <button id="btn-cancel-join" class="ghost hidden">キャンセル</button>
+      </div>
+
+      <details class="card rules">
+        <summary>ルール</summary>
+        <ul>
+          <li>秘密の数字は 0〜9 を使った<strong>重複なしの5桁</strong>です(先頭が 0 でも可)。</li>
+          <li><strong>Hit</strong>:数字も位置も合っている個数</li>
+          <li><strong>Blow</strong>:数字は含まれているが位置が違う個数</li>
+          <li>5 Hit で正解です。</li>
+          <li>オンライン対戦は交互に予想します。先攻が正解した場合も、後攻には同じ回数まで予想する権利があり、後攻も正解すれば引き分けです。</li>
+          <li>決着後にお互いの数字が公開され、相手の判定に誤りがないか自動でチェックします。</li>
+        </ul>
+      </details>
+    </section>
+
+    <!-- プレイ画面 -->
+    <section id="screen-play" class="screen hidden">
+      <div id="play-info" class="info"></div>
+      <p id="message" class="message"></p>
+      <p id="notice" class="notice"></p>
+      <div id="result" class="result hidden"></div>
+
+      <div id="input-area">
+        <div id="entry" class="entry"></div>
+        <div id="keypad" class="keypad"></div>
+      </div>
+
+      <div id="memo-area" class="memo-area">
+        <div class="memo-title">メモ(タップで 無印 → × → ○)</div>
+        <div id="memo" class="memo"></div>
+      </div>
+
+      <div class="histories">
+        <div class="hist-col">
+          <h3 id="hist-me-title">あなたの予想</h3>
+          <ol id="hist-me" class="hist"></ol>
+        </div>
+        <div class="hist-col" id="opp-col">
+          <h3>相手の予想</h3>
+          <ol id="hist-opp" class="hist"></ol>
+        </div>
+      </div>
+
+      <div class="actions">
+        <button id="btn-giveup" class="ghost">ギブアップ</button>
+        <button id="btn-retry" class="primary">もう一度</button>
+        <button id="btn-rematch" class="primary">再戦する</button>
+        <button id="btn-leave" class="ghost">メニューに戻る</button>
+      </div>
+    </section>
+  </main>
+</body>
+</html>
