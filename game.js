@@ -477,14 +477,18 @@ function resultHtml() {
   return wrap;
 }
 
+let prevEntryLen = 0;
 function renderEntry() {
   const box = $('#entry');
   box.replaceChildren();
   for (let i = 0; i < LEN; i++) {
     const slot = el('div', 'slot', state.entry[i] || '');
+    if (state.entry[i]) slot.classList.add('filled');
+    if (i === state.entry.length - 1 && state.entry.length > prevEntryLen) slot.classList.add('pop');
     if (i === state.entry.length && canInput()) slot.classList.add('cursor');
     box.appendChild(slot);
   }
+  prevEntryLen = state.entry.length;
 }
 
 function renderKeypad() {
@@ -531,19 +535,30 @@ function renderMemo() {
   });
 }
 
+function lamps(hit, blow) {
+  const box = el('span', 'lamps');
+  for (let i = 0; i < LEN; i++) {
+    box.appendChild(el('span', `lamp ${i < hit ? 'hit' : i < hit + blow ? 'blow' : 'off'}`));
+  }
+  return box;
+}
+
 function renderHistory(list, target) {
+  const prevLen = Number(target.dataset.len || 0);
   target.replaceChildren();
   [...list].reverse().forEach((g, idx) => {
     const li = el('li', g.hit === LEN ? 'solved' : '');
+    if (idx === 0 && list.length > prevLen) li.classList.add('fresh');
     li.append(
-      el('span', 'n', String(list.length - idx)),
+      el('span', 'n', String(list.length - idx).padStart(2, '0')),
       el('span', 'g', g.guess),
-      el('span', 'h', `${g.hit}H`),
-      el('span', 'b', `${g.blow}B`),
+      lamps(g.hit, g.blow),
+      el('span', 'hb', `${g.hit}H ${g.blow}B`),
     );
     target.appendChild(li);
   });
-  if (!list.length) target.appendChild(el('li', 'empty', 'まだありません'));
+  target.dataset.len = String(list.length);
+  if (!list.length) target.appendChild(el('li', 'empty', '— NO DATA —'));
 }
 
 function renderInfo() {
@@ -568,6 +583,7 @@ function render() {
 
   const online = state.mode === 'online';
   const over = state.phase === 'over';
+  $('#screen-play').dataset.turn = over ? 'over' : canInput() ? 'mine' : 'wait';
 
   renderInfo();
   $('#message').textContent = messageText();
