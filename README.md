@@ -5,6 +5,7 @@
 | ゲーム | 内容 | URL |
 |---|---|---|
 | Hit & Blow 5 | 重複なし5桁の数字を当てる推理ゲーム(ひとりで練習 / オンライン対戦) | `/hit-and-blow/` |
+| 将棋 | CPU 対戦(4段階)/ オンライン対戦 / ふたりで対局 | `/shogi/` |
 
 ## 構成
 
@@ -13,6 +14,12 @@ index.html          ゲーム一覧(トップページ)
 shared/theme.css    共通デザイン(配色・フォント・パネル・ボタンなど)
 shared/online.js    ルームキーで2人をつなぐオンライン接続(PeerJS)
 hit-and-blow/       Hit & Blow 5
+shogi/              将棋
+  shogi-core.js     ルール(合法手・王手・詰み・千日手・棋譜表記)
+  engine.js         CPU(やねうら王 WebAssembly 版を USI で操作)
+  engine/           やねうら王のビルド(GPLv3)
+  coi-sw.js         SharedArrayBuffer を有効にする Service Worker
+shared/vendor/      PeerJS 1.5.4(MIT)
 ```
 
 ## ゲームの追加方法
@@ -36,3 +43,22 @@ hit-and-blow/       Hit & Blow 5
 ### Hit & Blow 5 の不正対策
 
 自分の秘密の数字は相手に送らず、手元で Hit/Blow を判定して結果だけを返す。決着後にお互いの数字を公開し、判定結果に食い違いがないかを自動でチェックする。
+
+## 将棋の CPU について
+
+| 強さ | エンジン | 設定 |
+|---|---|---|
+| 簡単 | やねうら王 + SuishoPetite(K-P) | 深さ1・候補8手から確率で選ぶ |
+| 普通 | 同上 | 深さ3・候補4手から確率で選ぶ |
+| 難しい | 同上 | 1手1秒・最善手 |
+| 最強 | やねうら王 + 水匠5(NNUE HalfKP) | 最大3/5/10秒・最善手・相手の手番中も先読み(ponder)・CPU コア数−1 スレッド |
+
+- エンジンは [@mizarjp/yaneuraou.k-p](https://www.npmjs.com/package/@mizarjp/yaneuraou.k-p) 7.6.3-alpha.0 と [@mizarjp/yaneuraou.halfkp](https://www.npmjs.com/package/@mizarjp/yaneuraou.halfkp) 7.6.2-alpha.2 のビルドをそのまま同梱(wasm は gzip 圧縮し、ブラウザの DecompressionStream で展開)
+- WebAssembly のスレッドに SharedArrayBuffer が必要なため、`shogi/coi-sw.js`(Service Worker)で COOP/COEP ヘッダーを付けている
+- 最強の初回読み込みは約 30MB
+
+### ライセンス
+
+- やねうら王: GPLv3(`shogi/engine/LICENSE.md`)。ソースコード: <https://github.com/yaneurao/YaneuraOu> / WebAssembly 版: <https://github.com/mizar/YaneuraOu>
+- 評価関数 水匠5 / SuishoPetite: たややん氏(上記 npm パッケージに同梱されたもの)
+- PeerJS: MIT

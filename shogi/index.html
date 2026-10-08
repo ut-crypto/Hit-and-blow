@@ -1,0 +1,146 @@
+<!doctype html>
+<html lang="ja">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>将棋 | Mini Games</title>
+  <meta name="theme-color" content="#0b0d10">
+  <script src="coi.js"></script>
+  <link rel="preconnect" href="https://fonts.googleapis.com" crossorigin>
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=DotGothic16&family=Zen+Kaku+Gothic+New:wght@400;700&family=Shippori+Mincho+B1:wght@700&display=swap" rel="stylesheet" crossorigin="anonymous">
+  <link rel="stylesheet" href="../shared/theme.css">
+  <link rel="stylesheet" href="style.css">
+  <script src="../shared/vendor/peerjs.min.js" defer></script>
+  <script src="../shared/online.js" defer></script>
+  <script src="shogi-core.js" defer></script>
+  <script src="engine.js" defer></script>
+  <script src="app.js" defer></script>
+</head>
+<body>
+  <main id="app">
+    <a class="back-link" href="../">← GAMES</a>
+    <header class="masthead">
+      <h1 class="brand"><span class="brand-hit">将</span><span class="brand-blow">棋</span></h1>
+      <p class="tagline"><span class="led"></span>SHOGI</p>
+    </header>
+
+    <!-- メニュー -->
+    <section id="screen-menu" class="screen">
+      <div class="card">
+        <h2><span class="num">01</span>CPU 対戦</h2>
+        <p class="note">強さを選んでください。</p>
+        <div class="levels" id="levels"></div>
+        <p class="level-note" id="level-note"></p>
+
+        <div class="option-row" id="time-row">
+          <span class="option-label">最大思考時間</span>
+          <div class="seg" id="time-seg">
+            <button data-ms="3000">3秒</button>
+            <button data-ms="5000" class="on">5秒</button>
+            <button data-ms="10000">10秒</button>
+          </div>
+        </div>
+
+        <div class="option-row">
+          <span class="option-label">あなたの手番</span>
+          <div class="seg" id="color-seg">
+            <button data-color="0" class="on">先手 ▲</button>
+            <button data-color="1">後手 △</button>
+            <button data-color="random">ランダム</button>
+          </div>
+        </div>
+
+        <button id="btn-cpu" class="primary wide">対局開始</button>
+        <p id="cpu-status" class="status"></p>
+      </div>
+
+      <div class="card">
+        <h2><span class="num">02</span>オンライン対戦</h2>
+        <p class="note">相手と同じルームキーを入力して入室してください。先手・後手はランダムに決まります。</p>
+        <div class="row">
+          <input id="room-key" type="text" placeholder="ルームキー(例: neko123)" maxlength="32" autocomplete="off">
+          <button id="btn-join" class="primary">入室</button>
+        </div>
+        <p id="online-status" class="status"></p>
+        <button id="btn-copy-link" class="ghost small hidden">招待リンクをコピー</button>
+        <button id="btn-cancel-join" class="ghost small hidden">キャンセル</button>
+      </div>
+
+      <div class="card">
+        <h2><span class="num">03</span>ふたりで対局</h2>
+        <p class="note">1台の端末を交代で操作して対局します。</p>
+        <button id="btn-local" class="wide">対局開始</button>
+      </div>
+
+      <details class="card rules">
+        <summary>ルール・操作</summary>
+        <ul>
+          <li>駒をタップすると動かせるマスが表示されます。持ち駒はタップしてから打つマスを選びます。</li>
+          <li>二歩・打ち歩詰め・行き所のない駒は指せません(自動で判定)。</li>
+          <li>同じ局面が4回現れると千日手で引き分け。ただし王手をかけ続けた側の負けです。</li>
+          <li>入玉宣言はありません。512手に達すると引き分けです。</li>
+          <li>CPU の「最強」は初回に約 30MB のデータを読み込みます。</li>
+        </ul>
+      </details>
+    </section>
+
+    <!-- 対局画面 -->
+    <section id="screen-play" class="screen hidden">
+      <div id="play-info" class="info"></div>
+      <p id="message" class="message"></p>
+      <p id="notice" class="notice"></p>
+
+      <div id="loading" class="loading hidden">
+        <div class="loading-label" id="loading-label">エンジンを読み込み中…</div>
+        <div class="bar"><div class="bar-fill" id="loading-bar"></div></div>
+      </div>
+
+      <div id="result" class="result hidden"></div>
+
+      <div class="table">
+        <div class="board-area">
+          <div class="hand hand-top" id="hand-top"></div>
+          <div class="board-wrap">
+            <div class="files" id="files"></div>
+            <div class="board-row">
+              <div class="board" id="board"></div>
+              <div class="ranks" id="ranks"></div>
+            </div>
+          </div>
+          <div class="hand hand-bottom" id="hand-bottom"></div>
+          <p id="think-info" class="think-info"></p>
+        </div>
+
+        <div class="side-panel">
+          <div class="kifu-head">
+            <h3>棋譜</h3>
+            <button id="btn-copy-kifu" class="ghost small">コピー</button>
+          </div>
+          <ol id="kifu" class="kifu"></ol>
+        </div>
+      </div>
+
+      <div class="actions">
+        <button id="btn-undo" class="ghost">待った</button>
+        <button id="btn-flip" class="ghost">盤を反転</button>
+        <button id="btn-resign" class="ghost danger">投了</button>
+        <button id="btn-again" class="primary">もう一局</button>
+        <button id="btn-rematch" class="primary">再戦する</button>
+        <button id="btn-leave" class="ghost">メニューに戻る</button>
+      </div>
+    </section>
+
+    <!-- 成り選択 -->
+    <div id="promo" class="modal hidden" role="dialog" aria-modal="true" aria-label="成りますか">
+      <div class="modal-box">
+        <p class="modal-title">成りますか?</p>
+        <div class="promo-choices">
+          <button id="promo-yes" class="promo-btn"><span class="piece-face promoted" id="promo-yes-face"></span>成る</button>
+          <button id="promo-no" class="promo-btn"><span class="piece-face" id="promo-no-face"></span>成らない</button>
+        </div>
+      </div>
+    </div>
+  </main>
+</body>
+</html>

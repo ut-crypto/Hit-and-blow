@@ -7,7 +7,7 @@
   <meta name="theme-color" content="#0b0d10">
   <link rel="preconnect" href="https://fonts.googleapis.com">
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
-  <link href="https://fonts.googleapis.com/css2?family=DotGothic16&family=Zen+Kaku+Gothic+New:wght@400;700&display=swap" rel="stylesheet">
+  <link href="https://fonts.googleapis.com/css2?family=DotGothic16&family=Zen+Kaku+Gothic+New:wght@400;700&family=Shippori+Mincho+B1:wght@700&display=swap" rel="stylesheet">
   <link rel="stylesheet" href="shared/theme.css">
   <style>
     .games { list-style: none; margin: 0; padding: 0; display: grid; gap: 14px; }
@@ -41,6 +41,7 @@
     }
     .game-icon .a { color: var(--amber); text-shadow: var(--glow-amber); }
     .game-icon .b { color: var(--cyan); text-shadow: var(--glow-cyan); }
+    .shogi-icon { font-family: "Shippori Mincho B1", serif; font-weight: 700; font-size: 1.15rem; writing-mode: vertical-rl; letter-spacing: -0.05em; }
 
     .game-card h2 { margin: 0 0 2px; }
     .game-card p { margin: 0; color: var(--muted); font-size: 0.88rem; }
@@ -94,10 +95,25 @@
         </a>
       </li>
       <li>
+        <a class="card game-card" href="shogi/">
+          <div class="game-icon"><span class="shogi-icon"><span class="a">将</span><span class="b">棋</span></span></div>
+          <div>
+            <h2><span class="num">02</span>将棋</h2>
+            <p>CPU は4段階。最強は水匠5搭載のやねうら王</p>
+            <div class="tags">
+              <span class="tag">CPU 対戦</span>
+              <span class="tag online">オンライン対戦</span>
+              <span class="tag">ふたりで対局</span>
+            </div>
+          </div>
+          <span class="go" aria-hidden="true">▶</span>
+        </a>
+      </li>
+      <li>
         <div class="card game-card soon" aria-disabled="true">
           <div class="game-icon">?</div>
           <div>
-            <h2><span class="num">02</span>COMING SOON</h2>
+            <h2><span class="num">03</span>COMING SOON</h2>
             <p>次のゲームを準備中</p>
           </div>
         </div>
