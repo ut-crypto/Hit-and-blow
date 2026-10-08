@@ -3,92 +3,108 @@
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
-  <title>Hit &amp; Blow 5</title>
+  <title>Mini Games</title>
   <meta name="theme-color" content="#0b0d10">
   <link rel="preconnect" href="https://fonts.googleapis.com">
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
   <link href="https://fonts.googleapis.com/css2?family=DotGothic16&family=Zen+Kaku+Gothic+New:wght@400;700&display=swap" rel="stylesheet">
-  <link rel="stylesheet" href="style.css">
-  <script src="https://unpkg.com/peerjs@1.5.4/dist/peerjs.min.js" defer></script>
-  <script src="game.js" defer></script>
+  <link rel="stylesheet" href="shared/theme.css">
+  <style>
+    .games { list-style: none; margin: 0; padding: 0; display: grid; gap: 14px; }
+
+    .game-card {
+      display: grid;
+      grid-template-columns: auto 1fr auto;
+      align-items: center;
+      gap: 16px;
+      margin: 0;
+      color: inherit;
+      text-decoration: none;
+      transition: border-color 0.15s, transform 0.15s, box-shadow 0.15s;
+    }
+    a.game-card:hover { border-color: var(--amber-dim); transform: translateY(-2px); box-shadow: 0 14px 34px rgba(0, 0, 0, 0.45), 0 0 0 1px rgba(255, 181, 71, 0.15); }
+    a.game-card:focus-visible { outline: 2px solid var(--cyan); outline-offset: 3px; }
+
+    .game-icon {
+      width: 64px;
+      height: 64px;
+      display: grid;
+      place-items: center;
+      border: 1px solid var(--rule-strong);
+      border-radius: 4px;
+      background: #08090b;
+      box-shadow: inset 0 2px 8px rgba(0, 0, 0, 0.7);
+      font-family: var(--font-dot);
+      font-size: 1.05rem;
+      line-height: 1.1;
+      text-align: center;
+    }
+    .game-icon .a { color: var(--amber); text-shadow: var(--glow-amber); }
+    .game-icon .b { color: var(--cyan); text-shadow: var(--glow-cyan); }
+
+    .game-card h2 { margin: 0 0 2px; }
+    .game-card p { margin: 0; color: var(--muted); font-size: 0.88rem; }
+
+    .tags { display: flex; flex-wrap: wrap; gap: 6px; margin-top: 8px; }
+    .tag {
+      font-size: 0.72rem;
+      border: 1px solid var(--rule-strong);
+      border-radius: 2px;
+      padding: 0 8px;
+      color: var(--muted);
+    }
+    .tag.online { color: var(--cyan); border-color: var(--cyan-dim); }
+
+    .go { font-family: var(--font-dot); color: var(--amber); font-size: 1.4rem; }
+
+    .game-card.soon { opacity: 0.45; border-style: dashed; }
+    .game-card.soon::before, .game-card.soon::after { display: none; }
+    .game-card.soon .game-icon { color: var(--muted); font-size: 1.6rem; }
+
+    footer { margin-top: 32px; text-align: center; color: #4f4c45; font-family: var(--font-dot); font-size: 0.75rem; letter-spacing: 0.2em; }
+
+    @media (max-width: 420px) {
+      .game-card { grid-template-columns: auto 1fr; }
+      .go { display: none; }
+    }
+  </style>
 </head>
 <body>
   <main id="app">
     <header class="masthead">
-      <h1 class="brand"><span class="brand-hit">HIT</span><span class="amp">&amp;</span><span class="brand-blow">BLOW</span></h1>
-      <p class="tagline"><span class="led"></span>5-DIGIT CODE BREAKER</p>
+      <h1 class="brand"><span class="brand-hit">MINI</span><span class="amp"> </span><span class="brand-blow">GAMES</span></h1>
+      <p class="tagline"><span class="led"></span>SELECT A GAME</p>
     </header>
 
-    <!-- メニュー -->
-    <section id="screen-menu" class="screen">
-      <p class="lead">0〜9 の重複なし5桁の暗号を解読せよ</p>
+    <p class="lead">ブラウザで遊べるミニゲーム集</p>
 
-      <div class="card">
-        <h2><span class="num">01</span>ひとりで練習</h2>
-        <p class="note">CPU が決めた数字を当てます。</p>
-        <button id="btn-solo" class="primary">スタート</button>
-      </div>
-
-      <div class="card">
-        <h2><span class="num">02</span>オンライン対戦</h2>
-        <p class="note">相手と同じルームキーを入力して入室してください。先に入った人がルームを作成します。</p>
-        <div class="row">
-          <input id="room-key" type="text" placeholder="ルームキー(例: neko123)" maxlength="32" autocomplete="off">
-          <button id="btn-join" class="primary">入室</button>
+    <ul class="games">
+      <li>
+        <a class="card game-card" href="hit-and-blow/">
+          <div class="game-icon"><span><span class="a">H</span>&amp;<span class="b">B</span></span></div>
+          <div>
+            <h2><span class="num">01</span>Hit &amp; Blow 5</h2>
+            <p>重複なし5桁の数字を推理して当てる</p>
+            <div class="tags">
+              <span class="tag">ひとりで練習</span>
+              <span class="tag online">オンライン対戦</span>
+            </div>
+          </div>
+          <span class="go" aria-hidden="true">▶</span>
+        </a>
+      </li>
+      <li>
+        <div class="card game-card soon" aria-disabled="true">
+          <div class="game-icon">?</div>
+          <div>
+            <h2><span class="num">02</span>COMING SOON</h2>
+            <p>次のゲームを準備中</p>
+          </div>
         </div>
-        <p id="online-status" class="status"></p>
-        <button id="btn-copy-link" class="ghost hidden">招待リンクをコピー</button>
-        <button id="btn-cancel-join" class="ghost hidden">キャンセル</button>
-      </div>
+      </li>
+    </ul>
 
-      <details class="card rules">
-        <summary>ルール</summary>
-        <ul>
-          <li>秘密の数字は 0〜9 を使った<strong>重複なしの5桁</strong>です(先頭が 0 でも可)。</li>
-          <li><span class="lamp hit"></span><strong>Hit</strong>:数字も位置も合っている個数</li>
-          <li><span class="lamp blow"></span><strong>Blow</strong>:数字は含まれているが位置が違う個数</li>
-          <li>5 Hit で正解です。</li>
-          <li>オンライン対戦は交互に予想します。先攻が正解した場合も、後攻には同じ回数まで予想する権利があり、後攻も正解すれば引き分けです。</li>
-          <li>決着後にお互いの数字が公開され、相手の判定に誤りがないか自動でチェックします。</li>
-        </ul>
-      </details>
-    </section>
-
-    <!-- プレイ画面 -->
-    <section id="screen-play" class="screen hidden">
-      <div id="play-info" class="info"></div>
-      <p id="message" class="message"></p>
-      <p id="notice" class="notice"></p>
-      <div id="result" class="result hidden"></div>
-
-      <div id="input-area">
-        <div id="entry" class="entry"></div>
-        <div id="keypad" class="keypad"></div>
-      </div>
-
-      <div id="memo-area" class="memo-area">
-        <div class="memo-title">メモ(タップで 無印 → × → ○)</div>
-        <div id="memo" class="memo"></div>
-      </div>
-
-      <div class="histories">
-        <div class="hist-col">
-          <h3 id="hist-me-title">あなたの予想</h3>
-          <ol id="hist-me" class="hist"></ol>
-        </div>
-        <div class="hist-col" id="opp-col">
-          <h3>相手の予想</h3>
-          <ol id="hist-opp" class="hist"></ol>
-        </div>
-      </div>
-
-      <div class="actions">
-        <button id="btn-giveup" class="ghost">ギブアップ</button>
-        <button id="btn-retry" class="primary">もう一度</button>
-        <button id="btn-rematch" class="primary">再戦する</button>
-        <button id="btn-leave" class="ghost">メニューに戻る</button>
-      </div>
-    </section>
+    <footer>UT-CRYPTO / MINI GAMES</footer>
   </main>
 </body>
 </html>

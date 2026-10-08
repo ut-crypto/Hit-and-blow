@@ -2,7 +2,6 @@
 
 const LEN = 5;
 const PEER_PREFIX = 'ut-crypto-hab5-';
-const CONNECT_TIMEOUT_MS = 15000;
 
 const $ = (sel) => document.querySelector(sel);
 
@@ -142,7 +141,7 @@ function submitEntry() {
     state.myReady = true;
     state.phase = 'waiting';
     send({ type: 'ready' });
-    if (role === 'host') maybeStart();
+    maybeStart();
   } else if (state.mode === 'solo') {
     const r = judge(state.oppSecret, v);
     state.myGuesses.push({ guess: v, ...r });
@@ -157,17 +156,23 @@ function submitEntry() {
 
 // ---------- オンライン(PeerJS) ----------
 
-let peer = null;
-let conn = null;
-let role = null;      // 'host' | 'guest'
-let connectTimer = null;
+const room = OnlineRoom.create(PEER_PREFIX, {
+  onStatus(text, { error = false, busy = false, hosting = false }) {
+    setOnlineStatus(text, error);
+    setJoining(busy);
+    $('#btn-copy-link').classList.toggle('hidden', !hosting);
+  },
+  onConnect: startOnlineMatch,
+  onData: onMessage,
+  onDisconnect: onDisconnected,
+  onFull() {
+    showMenu();
+    setOnlineStatus('このルームは満員です。別のルームキーを使ってください', true);
+  },
+  onError: flash,
+});
 
-async function roomIdFromKey(key) {
-  const normalized = key.normalize('NFKC').trim().toLowerCase();
-  const buf = await crypto.subtle.digest('SHA-256', new TextEncoder().encode(normalized));
-  const hex = [...new Uint8Array(buf)].slice(0, 12).map((b) => b.toString(16).padStart(2, '0')).join('');
-  return PEER_PREFIX + hex;
-}
+const send = (msg) => room.send(msg);
 
 function setOnlineStatus(text, isError = false) {
   const el = $('#online-status');
@@ -182,132 +187,14 @@ function setJoining(joining) {
   if (!joining) $('#btn-copy-link').classList.add('hidden');
 }
 
-async function joinRoom() {
-  const key = $('#room-key').value.trim();
-  if (!key) {
-    setOnlineStatus('ルームキーを入力してください', true);
-    return;
-  }
-  if (typeof Peer === 'undefined') {
-    setOnlineStatus('通信ライブラリ(PeerJS)を読み込めませんでした。ページを再読み込みしてください', true);
-    return;
-  }
-  if (!window.crypto || !crypto.subtle) {
-    setOnlineStatus('https で開いてください(オンライン対戦は https が必要です)', true);
-    return;
-  }
-  leaveOnline();
-  state.roomKey = key;
-  setJoining(true);
-  setOnlineStatus('接続中…');
-
-  const roomId = await roomIdFromKey(key);
-  const p = new Peer(roomId);
-  peer = p;
-
-  p.on('open', () => {
-    if (peer !== p) return;
-    role = 'host';
-    setOnlineStatus(`ルーム「${key}」を作成しました。相手の入室を待っています…`);
-    $('#btn-copy-link').classList.remove('hidden');
-  });
-  p.on('connection', (c) => {
-    if (peer !== p) return;
-    if (conn) {
-      c.on('open', () => {
-        c.send({ type: 'full' });
-        setTimeout(() => c.close(), 500);
-      });
-      return;
-    }
-    attachConn(c);
-  });
-  p.on('disconnected', () => {
-    // 待機中にシグナリングサーバーとの接続が切れたら再接続する
-    if (peer === p && !p.destroyed && !conn) p.reconnect();
-  });
-  p.on('error', (err) => {
-    if (peer !== p) return;
-    if (err.type === 'unavailable-id') {
-      // 同じキーのルームが既にある → ゲストとして参加
-      p.destroy();
-      joinAsGuest(roomId, key);
-    } else {
-      handlePeerError(err);
-    }
-  });
-}
-
-function joinAsGuest(roomId, key) {
-  const p = new Peer();
-  peer = p;
-  p.on('open', () => {
-    if (peer !== p) return;
-    role = 'guest';
-    setOnlineStatus(`ルーム「${key}」に参加しています…`);
-    attachConn(p.connect(roomId, { reliable: true }));
-    connectTimer = setTimeout(() => {
-      if (peer === p && !(conn && conn.open)) {
-        setOnlineStatus('相手に接続できませんでした。時間をおくか、別のルームキーでお試しください', true);
-        leaveOnline();
-      }
-    }, CONNECT_TIMEOUT_MS);
-  });
-  p.on('error', (err) => {
-    if (peer !== p) return;
-    if (err.type === 'peer-unavailable') {
-      setOnlineStatus('ルームが見つかりませんでした。もう一度「入室」を押してください', true);
-      leaveOnline();
-    } else {
-      handlePeerError(err);
-    }
-  });
-}
-
-function handlePeerError(err) {
-  const messages = {
-    'browser-incompatible': 'このブラウザはオンライン対戦に対応していません',
-    network: 'サーバーに接続できません。ネットワークを確認してください',
-    'server-error': 'サーバーに接続できません。時間をおいてお試しください',
-    'socket-error': 'サーバーに接続できません。時間をおいてお試しください',
-    'socket-closed': 'サーバーとの接続が切れました',
-    webrtc: '相手との通信を確立できませんでした',
-  };
-  const text = messages[err.type] || `エラー: ${err.message || err.type}`;
-  if (state.mode === 'online' && state.phase !== 'menu') {
-    flash(text);
-  } else {
-    setOnlineStatus(text, true);
-    leaveOnline();
-  }
-}
-
-function attachConn(c) {
-  conn = c;
-  c.on('open', () => {
-    if (conn !== c) return;
-    clearTimeout(connectTimer);
-    startOnlineMatch();
-  });
-  c.on('data', (msg) => { if (conn === c) onMessage(msg); });
-  c.on('close', () => { if (conn === c) onDisconnected(); });
-  c.on('error', () => { if (conn === c) onDisconnected(); });
+function joinRoom() {
+  state.roomKey = $('#room-key').value.trim();
+  room.join(state.roomKey);
 }
 
 function leaveOnline() {
-  clearTimeout(connectTimer);
-  const c = conn;
-  const p = peer;
-  conn = null;
-  peer = null;
-  role = null;
-  if (c) c.close();
-  if (p) p.destroy();
+  room.leave();
   setJoining(false);
-}
-
-function send(msg) {
-  if (conn && conn.open) conn.send(msg);
 }
 
 function startOnlineMatch() {
@@ -320,7 +207,7 @@ function startOnlineMatch() {
 }
 
 function maybeStart() {
-  if (role !== 'host' || !state.myReady || !state.oppReady || state.phase !== 'waiting') return;
+  if (room.role !== 'host' || !state.myReady || !state.oppReady || state.phase !== 'waiting') return;
   const first = Math.random() < 0.5 ? 'host' : 'guest';
   send({ type: 'start', first });
   beginPlay(first === 'host');
@@ -343,17 +230,12 @@ function checkOnlineEnd() {
 function onMessage(msg) {
   if (!msg || typeof msg !== 'object') return;
   switch (msg.type) {
-    case 'full':
-      leaveOnline();
-      showMenu();
-      setOnlineStatus('このルームは満員です。別のルームキーを使ってください', true);
-      return;
     case 'ready':
       state.oppReady = true;
       maybeStart();
       break;
     case 'start':
-      if (role === 'guest' && state.phase === 'waiting') beginPlay(msg.first === 'guest');
+      if (room.role === 'guest' && state.phase === 'waiting') beginPlay(msg.first === 'guest');
       break;
     case 'guess': {
       const g = String(msg.guess);
@@ -390,7 +272,7 @@ function onMessage(msg) {
 }
 
 function requestRematch() {
-  if (state.phase !== 'over' || !(conn && conn.open)) return;
+  if (state.phase !== 'over' || !room.isOpen) return;
   state.myRematch = true;
   send({ type: 'rematch' });
   maybeRematch();
@@ -405,7 +287,6 @@ function maybeRematch() {
 }
 
 function onDisconnected() {
-  conn = null;
   if (state.mode === 'online' && state.phase !== 'over' && state.phase !== 'menu') {
     state.phase = 'over';
     state.outcome = 'disconnected';
@@ -608,7 +489,7 @@ function render() {
   $('#btn-giveup').classList.toggle('hidden', !(state.mode === 'solo' && state.phase === 'play'));
   $('#btn-retry').classList.toggle('hidden', !(state.mode === 'solo' && over));
   $('#btn-rematch').classList.toggle('hidden', !(online && over && state.outcome !== 'disconnected'));
-  $('#btn-rematch').disabled = state.myRematch || !(conn && conn.open);
+  $('#btn-rematch').disabled = state.myRematch || !room.isOpen;
 }
 
 // ---------- イベント登録 ----------

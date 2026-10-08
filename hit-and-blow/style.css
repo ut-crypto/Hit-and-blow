@@ -1,0 +1,224 @@
+/* ============================================================
+   HIT & BLOW 固有のスタイル(共通部分は ../shared/theme.css)
+   ============================================================ */
+
+#btn-solo { width: 100%; }
+#btn-copy-link, #btn-cancel-join { margin-top: 10px; margin-right: 8px; padding: 8px 14px; font-size: 0.85rem; }
+
+/* ---------- ランプ ---------- */
+
+.lamp {
+  display: inline-block;
+  width: 10px;
+  height: 10px;
+  border-radius: 50%;
+  flex: none;
+}
+.lamp.hit { background: var(--amber); box-shadow: var(--glow-amber); }
+.lamp.blow { background: var(--cyan); box-shadow: var(--glow-cyan); }
+.lamp.off { background: #262a31; box-shadow: inset 0 1px 2px rgba(0, 0, 0, 0.6); }
+
+/* ---------- プレイ画面 ---------- */
+
+.info { display: flex; flex-wrap: wrap; gap: 6px; justify-content: center; }
+
+.chip {
+  font-size: 0.78rem;
+  border: 1px solid var(--rule-strong);
+  background: var(--panel);
+  border-radius: 2px;
+  padding: 2px 10px;
+  color: var(--muted);
+}
+
+.chip.secret {
+  font-family: var(--font-dot);
+  color: var(--amber);
+  border-color: var(--amber-dim);
+  letter-spacing: 0.08em;
+}
+
+/* ステータス表示(LED ティッカー風) */
+.message {
+  margin: 16px 0 4px;
+  padding: 10px 14px;
+  min-height: 1.6em;
+  text-align: center;
+  font-weight: 700;
+  border: 1px solid var(--rule);
+  border-radius: 3px;
+  background: rgba(0, 0, 0, 0.35);
+  transition: color 0.2s, border-color 0.2s, box-shadow 0.2s;
+}
+.message:empty { display: none; }
+
+[data-turn="mine"] .message {
+  color: var(--amber);
+  border-color: var(--amber-dim);
+  box-shadow: inset 0 0 20px rgba(255, 181, 71, 0.08);
+}
+[data-turn="wait"] .message { color: var(--muted); animation: pulse 1.6s ease-in-out infinite; }
+
+.notice { text-align: center; color: var(--red); min-height: 1.4em; margin: 4px 0 8px; font-size: 0.88rem; }
+
+/* 結果 */
+.result {
+  text-align: center;
+  background: linear-gradient(180deg, var(--panel-2), var(--panel));
+  border: 1px solid var(--rule-strong);
+  border-radius: 4px;
+  padding: 22px 16px;
+  margin-bottom: 20px;
+  animation: rise 0.35s ease-out;
+}
+
+.result-title {
+  font-family: var(--font-dot);
+  font-size: clamp(1.4rem, 6vw, 1.9rem);
+  letter-spacing: 0.05em;
+}
+.result-title.win, .result-title.draw { color: var(--amber); text-shadow: var(--glow-amber); }
+.result-title.draw { color: var(--cyan); text-shadow: var(--glow-cyan); }
+.result-title.lose, .result-title.giveup, .result-title.disconnected { color: var(--red); text-shadow: 0 0 12px rgba(255, 93, 93, 0.4); }
+.result-sub { margin-top: 6px; font-family: var(--font-dot); color: var(--text); letter-spacing: 0.06em; }
+.result-warn { margin-top: 10px; color: var(--red); font-weight: 700; }
+
+/* 入力スロット(ニキシー管風) */
+.entry { display: flex; justify-content: center; gap: 8px; margin: 8px 0 16px; }
+
+.slot {
+  width: 54px;
+  height: 68px;
+  border: 1px solid var(--rule-strong);
+  border-radius: 4px;
+  background:
+    linear-gradient(180deg, rgba(255, 255, 255, 0.04), transparent 45%, rgba(0, 0, 0, 0.3)),
+    #08090b;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-family: var(--font-dot);
+  font-size: 2.3rem;
+  color: var(--amber);
+  text-shadow: var(--glow-amber);
+  box-shadow: inset 0 2px 8px rgba(0, 0, 0, 0.7);
+  position: relative;
+}
+
+/* 中央の分割線 */
+.slot::after {
+  content: "";
+  position: absolute;
+  left: 4px;
+  right: 4px;
+  top: 50%;
+  height: 1px;
+  background: rgba(0, 0, 0, 0.6);
+}
+
+.slot.filled { border-color: var(--amber-dim); }
+.slot.pop { animation: pop 0.18s ease-out; }
+.slot.cursor { border-color: var(--amber); }
+.slot.cursor::before {
+  content: "";
+  position: absolute;
+  bottom: 10px;
+  width: 22px;
+  height: 3px;
+  background: var(--amber);
+  box-shadow: var(--glow-amber);
+  animation: blink 1s steps(1) infinite;
+}
+
+/* キーパッド */
+.keypad {
+  display: grid;
+  grid-template-columns: repeat(5, 1fr);
+  gap: 6px;
+  margin-bottom: 20px;
+}
+
+.key {
+  font-family: var(--font-dot);
+  font-size: 1.35rem;
+  padding: 12px 0;
+  background: linear-gradient(180deg, #232831, #181b21);
+  border-color: #303641;
+  box-shadow: 0 2px 0 #0a0b0d;
+}
+.key:not(.digit) { font-family: var(--font-body); font-size: 0.95rem; }
+.key.digit:hover:not(:disabled) { color: var(--amber); }
+
+.key.submit {
+  grid-column: span 3;
+  background: var(--amber);
+  border-color: var(--amber);
+  color: #1a1206;
+  font-weight: 700;
+  letter-spacing: 0.08em;
+  box-shadow: 0 2px 0 #7a5418, 0 4px 18px rgba(255, 181, 71, 0.2);
+}
+.key.submit:hover:not(:disabled) { background: #ffc66e; }
+
+/* メモ */
+.memo-area { margin-bottom: 20px; }
+.memo-title { font-size: 0.75rem; color: var(--muted); margin-bottom: 6px; letter-spacing: 0.05em; }
+.memo { display: grid; grid-template-columns: repeat(10, 1fr); gap: 4px; }
+.memo-key {
+  padding: 6px 0;
+  font-family: var(--font-dot);
+  font-size: 1rem;
+  background: var(--panel);
+}
+.memo-key.m1 { text-decoration: line-through; color: #4a4740; border-color: var(--rule); }
+.memo-key.m2 { color: var(--cyan); border-color: var(--cyan); box-shadow: inset 0 0 10px rgba(79, 227, 208, 0.18); }
+
+/* 履歴 */
+.histories { display: flex; gap: 14px; }
+.hist-col { flex: 1; min-width: 0; }
+.hist-col h3 {
+  font-size: 0.78rem;
+  letter-spacing: 0.12em;
+  color: var(--muted);
+  margin: 0 0 8px;
+  padding-bottom: 6px;
+  border-bottom: 1px solid var(--rule);
+}
+
+.hist { list-style: none; margin: 0; padding: 0; }
+
+.hist li {
+  display: grid;
+  grid-template-columns: auto 1fr auto;
+  grid-template-areas: "n g lamps" "n g hb";
+  column-gap: 12px;
+  align-items: center;
+  background: var(--panel);
+  border: 1px solid var(--rule);
+  border-left: 3px solid var(--rule-strong);
+  border-radius: 3px;
+  padding: 6px 12px;
+  margin-bottom: 5px;
+}
+
+.hist li.fresh { animation: slide-in 0.3s ease-out; }
+.hist li.solved { border-color: var(--amber-dim); border-left-color: var(--amber); background: linear-gradient(90deg, rgba(255, 181, 71, 0.1), var(--panel)); }
+.hist li.empty { display: block; color: #4f4c45; font-family: var(--font-dot); font-size: 0.8rem; text-align: center; border-style: dashed; border-left-width: 1px; }
+
+.hist .n { grid-area: n; color: var(--muted); font-family: var(--font-dot); font-size: 0.75rem; }
+.hist .g { grid-area: g; font-family: var(--font-dot); font-size: 1.35rem; letter-spacing: 0.14em; }
+.hist .lamps { grid-area: lamps; display: flex; gap: 4px; justify-self: end; }
+.hist .hb { grid-area: hb; justify-self: end; font-family: var(--font-dot); font-size: 0.72rem; color: var(--muted); letter-spacing: 0.05em; }
+
+.actions { display: flex; flex-wrap: wrap; gap: 8px; justify-content: center; margin-top: 24px; }
+
+/* ---------- スマホ ---------- */
+
+@media (max-width: 480px) {
+  .histories { flex-direction: column; gap: 18px; }
+}
+
+@media (max-width: 380px) {
+  .slot { width: 46px; height: 60px; font-size: 2rem; }
+  .entry { gap: 6px; }
+}
