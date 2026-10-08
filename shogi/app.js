@@ -25,6 +25,9 @@ const app = {
   showEval: loadPref('shogi-evalbar', true),
   evalInfo: null,      // { blackScore, mate: 'black'|'white'|null }
   evalUnavailable: '',
+  // ヒント(CPU 対戦のみ)
+  hint: null,          // { loading: true, ply } | { ply, move, kif, text }
+  hintsUsed: 0,
   token: 0,            // 対局ごとに増やし、古い非同期処理の結果を捨てる
   loading: false,
   // オンライン
@@ -95,6 +98,8 @@ function newGame(myColor) {
   app.cpuThinking = false;
   app.thinkText = '';
   app.evalInfo = null;
+  clearHint();
+  app.hintsUsed = 0;
   app.myRematch = false;
   app.oppRematch = false;
   showPlay();
@@ -164,6 +169,7 @@ function onHandClick(color, type) {
 
 function humanPlay(move) {
   const g = app.game;
+  clearHint();
   const ply = g.ply;
   g.play(move);
   app.selected = null;
@@ -270,6 +276,7 @@ async function cpuMove() {
     if (token === app.token) app.cpuThinking = false;
   }
   if (token !== app.token || g.ply !== ply) return;
+  clearHint();
   if (res.move === 'resign') {
     g.resign(1 - app.myColor);
   } else if (!g.playUsi(res.move)) {
@@ -337,6 +344,7 @@ async function undo() {
   app.selected = null;
   app.lastMoveSq = g.ply ? g.moves[g.ply - 1].to : null;
   app.evalInfo = null;
+  clearHint();
   render();
   requestEval();
 }
@@ -468,9 +476,7 @@ function cpuProvidesEval() {
   return app.mode === 'cpu' && LEVELS[app.level].engine === 'halfkp';
 }
 
-function requestEval() {
-  const g = app.game;
-  if (!app.showEval || !g || g.result || cpuProvidesEval() || app.evalUnavailable) return;
+function ensureEvaluator() {
   if (!evaluatorReady) {
     evaluator = new Evaluator(onEval);
     evaluatorReady = evaluator.init().catch((err) => {
@@ -480,7 +486,13 @@ function requestEval() {
       throw err;
     });
   }
-  evaluatorReady.then(() => {
+  return evaluatorReady;
+}
+
+function requestEval() {
+  const g = app.game;
+  if (!app.showEval || !g || g.result || cpuProvidesEval() || app.evalUnavailable) return;
+  ensureEvaluator().then(() => {
     if (app.game === g) evaluator.request(g);
   }).catch(() => {});
 }
@@ -561,6 +573,65 @@ function renderEvalBar() {
   $('#eval-fill').style.width = `${pct.toFixed(1)}%`;
 }
 
+// ---------- ヒント(CPU 対戦のみ) ----------
+
+const HINT_MS = 1500; // 「難しい」と同程度の読み
+
+function clearHint() {
+  if (app.hint && evaluator) evaluator.cancelHint();
+  app.hint = null;
+}
+
+async function requestHint() {
+  const g = app.game;
+  if (app.mode !== 'cpu' || !isHumanTurn()) return;
+  if (app.hint && !app.hint.loading && app.hint.ply === g.ply) {
+    app.hint = null; // もう一度押すと隠す
+    render();
+    return;
+  }
+  if (app.hint && app.hint.loading) return;
+  const token = app.token;
+  const ply = g.ply;
+  app.hint = { loading: true, ply };
+  render();
+  let res = null;
+  try {
+    await ensureEvaluator();
+    res = await evaluator.hint(g, HINT_MS);
+  } catch (err) {
+    flash(`ヒントを出せませんでした: ${err.message || err}`);
+  }
+  if (token !== app.token || app.game !== g || g.ply !== ply || !app.hint || !app.hint.loading) return;
+  const move = res && g.pos.findMove(res.move);
+  if (!move) {
+    app.hint = null;
+    if (res) flash('ヒントを出せませんでした');
+    render();
+    return;
+  }
+  const prevTo = g.ply ? g.moves[g.ply - 1].to : null;
+  let note = '';
+  if (res.mate !== null && res.score > 0) note = '詰みがあります';
+  else if (res.score !== null) note = `この手を指したときの評価値 ${res.score > 0 ? '+' : ''}${res.score}`;
+  app.hint = { ply, move, kif: g.pos.moveToKif(move, prevTo), note };
+  app.hintsUsed++;
+  render();
+}
+
+function renderHintInfo() {
+  const info = $('#hint-info');
+  const h = app.hint;
+  const show = app.mode === 'cpu' && !!h;
+  info.classList.toggle('hidden', !show);
+  if (!show) return;
+  if (h.loading) {
+    info.textContent = 'ヒントを考え中…';
+    return;
+  }
+  info.replaceChildren('ヒント: ', el('strong', '', h.kif), h.note ? `  ${h.note}` : '');
+}
+
 // ---------- 描画 ----------
 
 const cells = [];
@@ -613,6 +684,9 @@ function renderBoard() {
     if (sel && sel.from === sq) cls.push('selected');
     if (targets.has(sq)) cls.push('target', pc ? 'capture' : '');
     if (sq === checkedKing) cls.push('checked');
+    const hm = app.hint && app.hint.move;
+    if (hm && hm.from === sq) cls.push('hint-from');
+    if (hm && hm.to === sq) cls.push('hint-to');
     cell.className = cls.filter(Boolean).join(' ');
     cell.disabled = !human;
     const sig = pc ? `${pc.c}${pc.t}${pc.p}${bottom}` : '';
@@ -653,6 +727,7 @@ function renderHand(target, color) {
     b.appendChild(el('span', f.cls, f.char));
     if (n > 1) b.appendChild(el('span', 'count', String(n)));
     if (app.selected && app.selected.drop === t && g.pos.side === color) b.classList.add('selected');
+    if (app.hint && app.hint.move && app.hint.move.drop === t && g.pos.side === color) b.classList.add('hint');
     b.disabled = !(isHumanTurn() && g.pos.side === color);
     b.setAttribute('aria-label', `持ち駒 ${PIECE_CHAR[t]} ${n}枚`);
     b.addEventListener('click', () => onHandClick(color, t));
@@ -714,6 +789,7 @@ function renderResult() {
     ? `${g.ply}手まで ${COLOR_NAME[1 - winner]}の投了`
     : `${g.ply}手 ${REASON_TEXT[reason] || reason}`;
   const nodes = [el('div', `result-title ${cls}`, title), el('div', 'result-sub', sub)];
+  if (app.mode === 'cpu' && app.hintsUsed) nodes.push(el('div', 'result-sub', `ヒント ${app.hintsUsed}回使用`));
   if (app.mode === 'online' && reason !== 'disconnect') {
     if (app.myRematch && !app.oppRematch) nodes.push(el('div', 'result-sub', '相手の再戦待ち…'));
     else if (app.oppRematch && !app.myRematch) nodes.push(el('div', 'result-sub', '相手が再戦を希望しています'));
@@ -778,6 +854,11 @@ function render() {
   $('#btn-rematch').disabled = app.myRematch || !room.isOpen;
   $('#btn-copy-kifu').disabled = !g || !g.ply;
   $('#btn-evalbar').textContent = app.showEval ? '形勢バーを隠す' : '形勢バーを表示';
+  const hintBtn = $('#btn-hint');
+  hintBtn.classList.toggle('hidden', !(app.mode === 'cpu' && g && !over));
+  hintBtn.disabled = !isHumanTurn() || !!(app.hint && app.hint.loading);
+  hintBtn.textContent = app.hint && app.hint.loading ? '考え中…' : app.hint ? 'ヒントを隠す' : 'ヒント';
+  renderHintInfo();
   renderEvalBar();
 }
 
@@ -862,6 +943,7 @@ function init() {
   });
 
   $('#btn-undo').addEventListener('click', undo);
+  $('#btn-hint').addEventListener('click', requestHint);
   $('#btn-flip').addEventListener('click', () => { app.flipped = !app.flipped; render(); });
   $('#btn-evalbar').addEventListener('click', () => {
     app.showEval = !app.showEval;

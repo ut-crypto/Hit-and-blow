@@ -83,6 +83,7 @@
           <li>入玉宣言はありません。512手に達すると引き分けです。</li>
           <li>CPU の「最強」「極」は初回に約 30MB のデータを読み込みます。</li>
           <li>形勢バーは自分から見た勝率の目安です(「最強」「極」では CPU 自身の読み、それ以外は軽量エンジンで評価)。</li>
+          <li>CPU 対戦では「ヒント」で推奨手を表示できます(「難しい」と同程度の読み。もう一度押すと隠れます)。</li>
         </ul>
       </details>
     </section>
@@ -120,6 +121,7 @@
           </div>
           <div class="hand hand-bottom" id="hand-bottom"></div>
           <p id="think-info" class="think-info"></p>
+          <p id="hint-info" class="hint-info hidden"></p>
         </div>
 
         <div class="side-panel">
@@ -132,6 +134,7 @@
       </div>
 
       <div class="actions">
+        <button id="btn-hint" class="hint-btn">ヒント</button>
         <button id="btn-undo" class="ghost">待った</button>
         <button id="btn-flip" class="ghost">盤を反転</button>
         <button id="btn-evalbar" class="ghost">形勢バー</button>

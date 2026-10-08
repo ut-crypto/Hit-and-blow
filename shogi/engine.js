@@ -486,21 +486,54 @@ const ShogiEngine = (() => {
       this.pump();
     }
 
+    /**
+     * ヒント: game の局面での推奨手を返す。{ move, score(手番側視点), mate } | null
+     * 形勢評価より優先し、ヒントの探索中に来た形勢評価はヒントの後に回す。
+     */
+    hint(game, ms) {
+      if (!this.engine || game.result) return Promise.resolve(null);
+      if (this.hintJob) this.hintJob.resolve(null);
+      return new Promise((resolve) => {
+        this.hintJob = { position: game.usiPosition(), side: game.pos.side, ply: game.ply, ms, resolve, hint: true };
+        this.pump();
+      });
+    }
+
+    cancelHint() {
+      if (this.hintJob) {
+        this.hintJob.resolve(null);
+        this.hintJob = null;
+      }
+      if (this.current && this.current.hint) {
+        this.current.cancelled = true;
+        this.engine.send('stop');
+      }
+    }
+
     cancel() {
       this.pending = null;
+      this.cancelHint();
       if (this.current) this.engine.send('stop');
     }
 
     async pump() {
       if (this.busy) {
-        if (this.current) this.engine.send('stop');
+        // 形勢評価の探索中なら止めて最新の依頼へ。ヒントの探索中は止めない
+        if (this.current && !this.current.hint) this.engine.send('stop');
         return;
       }
       this.busy = true;
-      while (this.pending) {
-        const job = this.pending;
-        this.pending = null;
+      while (this.hintJob || this.pending) {
+        let job;
+        if (this.hintJob) {
+          job = this.hintJob;
+          this.hintJob = null;
+        } else {
+          job = this.pending;
+          this.pending = null;
+        }
         this.current = job;
+        let last = null;
         const emit = (info) => {
           if (this.pending || info.score === null) return;
           const blackScore = job.side === ShogiCore.BLACK ? info.score : -info.score;
@@ -508,12 +541,20 @@ const ShogiEngine = (() => {
           this.onEval({ ply: job.ply, blackScore, mate, depth: info.depth });
         };
         this.engine.send(job.position);
-        await this.engine.request('go movetime 800', 'bestmove', (line) => {
+        const bestLine = await this.engine.request(`go movetime ${job.hint ? job.ms : 800}`, 'bestmove', (line) => {
           if (!line.startsWith('info') || !line.includes(' score ')) return;
           const info = parseInfo(line);
-          if (!info.bound && info.depth >= 6) emit(info);
+          if (info.bound) return;
+          last = info;
+          if (info.depth >= 6) emit(info);
         });
         this.current = null;
+        if (job.hint) {
+          const move = bestLine.split(' ')[1];
+          job.resolve(job.cancelled || !move || move === 'resign' || move === 'win'
+            ? null
+            : { move, score: last ? last.score : null, mate: last ? last.mate : null, depth: last ? last.depth : 0 });
+        }
       }
       this.busy = false;
     }
