@@ -9,12 +9,49 @@
  */
 const ShogiEngine = (() => {
   const ENGINES = {
-    'k-p': { script: 'engine/yaneuraou.k-p.js', global: 'YaneuraOu_K_P', wasm: 'engine/yaneuraou.k-p.wasm.gz' },
-    halfkp: { script: 'engine/yaneuraou.halfkp.js', global: 'YaneuraOu_HalfKP', wasm: 'engine/yaneuraou.halfkp.wasm.gz' },
+    'k-p': { script: 'engine/yaneuraou.k-p.js', global: 'YaneuraOu_K_P', wasm: 'engine/yaneuraou.k-p.wasm.gz', initialMB: 88 },
+    halfkp: { script: 'engine/yaneuraou.halfkp.js', global: 'YaneuraOu_HalfKP', wasm: 'engine/yaneuraou.halfkp.wasm.gz', initialMB: 160 },
     kh: {
       script: 'engine/yaneuraou.komoringheights-mate.js',
       global: 'KomoringHeights_MATE',
       wasm: 'engine/yaneuraou.komoringheights-mate.wasm.gz',
+      initialMB: 132,
+    },
+  };
+
+  /*
+   * メモリの使い方。ビルドの既定ではエンジン1つごとに共有メモリを最大 4GB 予約するため、
+   * iPhone / iPad(WebKit)では "Out of memory" になる。必要な分だけを上限にしたメモリを渡す。
+   */
+  const IS_IOS = /iP(hone|ad|od)/.test(navigator.userAgent)
+    || (navigator.platform === 'MacIntel' && navigator.maxTouchPoints > 1);
+  const MEM = {
+    low: IS_IOS, // 確保に失敗したら true にして小さい設定で再試行する
+    hash(kind) {
+      const dm = navigator.deviceMemory; // Chrome 系のみ
+      const plan = this.low
+        ? { max: 32, ultra: 64, kh: 16, kp: 16, evaluator: 16 }
+        : {
+          max: dm === undefined || dm >= 4 ? 256 : 64,
+          ultra: dm >= 8 ? 1024 : dm === undefined || dm >= 4 ? 512 : 256,
+          kh: 64,
+          kp: 32,
+          evaluator: 16,
+        };
+      return plan[kind];
+    },
+    threads(reserve) {
+      const cores = navigator.hardwareConcurrency || 2;
+      return Math.max(1, Math.min(cores - reserve, this.low ? 2 : 16));
+    },
+    /**
+     * インスタンスごとのメモリ上限(MB)。実測値から:
+     *   halfkp ≒ 240 + 探索スレッド数 × 60 + 置換表、k-p ≒ 125 + 置換表、詰将棋ソルバー ≒ 132 + 置換表
+     */
+    maxMB(kind) {
+      if (kind === 'halfkp') return 240 + this.threads(1) * 64 + Math.max(this.hash('max'), this.hash('ultra')) + 64;
+      if (kind === 'kh') return 132 + this.hash('kh') + 48;
+      return 140 + Math.max(this.hash('kp'), this.hash('evaluator')) + 48;
     },
   };
   const BOOK_URL = 'engine/book-suisho5.db';
@@ -129,11 +166,29 @@ const ShogiEngine = (() => {
         window[def.global] ? null : loadScript(new URL(def.script, base).href),
       ]);
       const engineBase = new URL('engine/', base).href;
-      const mod = await window[def.global]({
-        wasmBinary,
-        locateFile: (path) => engineBase + path,
-        mainScriptUrlOrBlob: new URL(def.script, base).href,
-      });
+      const create = () => {
+        const initialPages = def.initialMB * 16;
+        const wasmMemory = new WebAssembly.Memory({
+          initial: initialPages,
+          maximum: Math.min(65536, Math.max(initialPages, MEM.maxMB(kind) * 16)),
+          shared: true,
+        });
+        return window[def.global]({
+          wasmBinary,
+          wasmMemory,
+          INITIAL_MEMORY: initialPages * 65536,
+          locateFile: (path) => engineBase + path,
+          mainScriptUrlOrBlob: new URL(def.script, base).href,
+        });
+      };
+      let mod;
+      try {
+        mod = await create();
+      } catch (err) {
+        if (MEM.low) throw new Error(`メモリが足りずエンジンを起動できませんでした(${err.message || err})。他のタブを閉じるか、軽いレベルでお試しください`);
+        MEM.low = true; // 置換表を小さくして再試行
+        mod = await create();
+      }
       const engine = new UsiEngine(mod);
       await engine.request('usi', 'usiok');
       return engine;
@@ -215,14 +270,9 @@ const ShogiEngine = (() => {
 
   function strongOptions(level) {
     const cores = navigator.hardwareConcurrency || 2;
-    const mem = navigator.deviceMemory; // Chrome 系のみ。不明なら控えめに
     // 極は詰将棋ソルバーに1コア回す
     const reserve = level.mateSolver && cores >= 4 ? 2 : 1;
-    const threads = Math.max(1, Math.min(cores - reserve, 16));
-    let hash;
-    if (level.book) hash = mem >= 8 ? 1024 : mem >= 4 ? 512 : 256;
-    else hash = mem === undefined || mem >= 4 ? 256 : 64;
-    return { Threads: threads, USI_Hash: hash, USI_Ponder: true };
+    return { Threads: MEM.threads(reserve), USI_Hash: MEM.hash(level.book ? 'ultra' : 'max'), USI_Ponder: true };
   }
 
   let bookText = null;
@@ -246,7 +296,7 @@ const ShogiEngine = (() => {
 
     static async create() {
       const engine = await loadModule('kh');
-      engine.setOptions({ USI_Hash: 64, Threads: 1, PvInterval: 0, RootIsAndNodeIfChecked: false });
+      engine.setOptions({ USI_Hash: MEM.hash('kh'), Threads: 1, PvInterval: 0, RootIsAndNodeIfChecked: false });
       await engine.request('isready', 'readyok');
       return new MateSolver(engine);
     }
@@ -297,7 +347,7 @@ const ShogiEngine = (() => {
         PvInterval: 300,
         MultiPV: lv.multiPV,
       };
-      const strength = lv.engine === 'halfkp' ? strongOptions(lv) : { Threads: 1, USI_Hash: 32, USI_Ponder: false };
+      const strength = lv.engine === 'halfkp' ? strongOptions(lv) : { Threads: 1, USI_Hash: MEM.hash('kp'), USI_Ponder: false };
       let book = { USI_OwnBook: false, BookFile: 'no_book' };
       if (lv.book) {
         await loadBook(e);
@@ -468,7 +518,7 @@ const ShogiEngine = (() => {
       this.engine = await loadModule('k-p', null, 'evaluator');
       this.engine.setOptions({
         Threads: 1,
-        USI_Hash: 16,
+        USI_Hash: MEM.hash('evaluator'),
         MultiPV: 1,
         EnteringKingRule: 'NoEnteringKing',
         NetworkDelay: 0,
