@@ -5,7 +5,7 @@
 | ゲーム | 内容 | URL |
 |---|---|---|
 | Hit & Blow 5 | 重複なし5桁の数字を当てる推理ゲーム(ひとりで練習 / オンライン対戦) | `/hit-and-blow/` |
-| 将棋 | CPU 対戦(4段階)/ オンライン対戦 / ふたりで対局 | `/shogi/` |
+| 将棋 | CPU 対戦(5段階)/ オンライン対戦 / ふたりで対局、形勢バー付き | `/shogi/` |
 
 ## 構成
 
@@ -51,14 +51,18 @@ shared/vendor/      PeerJS 1.5.4(MIT)
 | 簡単 | やねうら王 + SuishoPetite(K-P) | 深さ1・候補8手から確率で選ぶ |
 | 普通 | 同上 | 深さ3・候補4手から確率で選ぶ |
 | 難しい | 同上 | 1手1秒・最善手 |
-| 最強 | やねうら王 + 水匠5(NNUE HalfKP) | 最大3/5/10秒・最善手・相手の手番中も先読み(ponder)・CPU コア数−1 スレッド |
+| 最強 | やねうら王 + 水匠5(NNUE HalfKP) | 最大3/5/10/20秒・最善手・相手の手番中も先読み(ponder)・CPU コア数−1 スレッド |
+| 極 | 最強 + KomoringHeights + 定跡 | 最強の設定に加えて、詰将棋ソルバーを並列実行(詰みが見つかれば即座に詰ます)、水匠5に1局面30秒×4スレッドで読ませて作った定跡、置換表を最大1GBに拡大 |
 
 - エンジンは [@mizarjp/yaneuraou.k-p](https://www.npmjs.com/package/@mizarjp/yaneuraou.k-p) 7.6.3-alpha.0 と [@mizarjp/yaneuraou.halfkp](https://www.npmjs.com/package/@mizarjp/yaneuraou.halfkp) 7.6.2-alpha.2 のビルドをそのまま同梱(wasm は gzip 圧縮し、ブラウザの DecompressionStream で展開)
 - WebAssembly のスレッドに SharedArrayBuffer が必要なため、`shogi/coi-sw.js`(Service Worker)で COOP/COEP ヘッダーを付けている
-- 最強の初回読み込みは約 30MB
+- 最強・極の初回読み込みは約 30MB
+- 形勢バー: 最強・極では CPU 自身の読みの評価値、それ以外のモード(簡単〜難しい・オンライン・ふたりで対局)は K-P 版エンジンを別インスタンスで動かして評価。勝率は 1/(1+exp(-評価値/600)) で換算した目安
+- 定跡 `shogi/engine/book-suisho5.db` は YaneuraOu の定跡 DB 形式。CPU が先手・後手それぞれの主要な序盤(人間側は水匠5の上位3手+よく指される手)を数手分収録
 
 ### ライセンス
 
 - やねうら王: GPLv3(`shogi/engine/LICENSE.md`)。ソースコード: <https://github.com/yaneurao/YaneuraOu> / WebAssembly 版: <https://github.com/mizar/YaneuraOu>
 - 評価関数 水匠5 / SuishoPetite: たややん氏(上記 npm パッケージに同梱されたもの)
+- KomoringHeights: GPLv3。ソースコード: <https://github.com/komori-n/KomoringHeights>([@mizarjp/yaneuraou.komoringheights-mate](https://www.npmjs.com/package/@mizarjp/yaneuraou.komoringheights-mate) 0.5.0-kh.14 のビルドを同梱)
 - PeerJS: MIT

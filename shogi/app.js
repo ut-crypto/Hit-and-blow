@@ -1,7 +1,7 @@
 'use strict';
 
 const { Game, BLACK, WHITE, HAND_TYPES, PIECE_CHAR, PROMOTED_CHAR, ZEN_DIGIT, KAN_DIGIT, moveToUsi } = ShogiCore;
-const { LEVELS, CpuPlayer } = ShogiEngine;
+const { LEVELS, CpuPlayer, Evaluator } = ShogiEngine;
 
 const PEER_PREFIX = 'ut-crypto-shogi-';
 const COLOR_NAME = ['▲先手', '△後手'];
@@ -21,6 +21,10 @@ const app = {
   cpu: null,
   cpuThinking: false,
   thinkText: '',
+  // 形勢バー
+  showEval: loadPref('shogi-evalbar', true),
+  evalInfo: null,      // { blackScore, mate: 'black'|'white'|null }
+  evalUnavailable: '',
   token: 0,            // 対局ごとに増やし、古い非同期処理の結果を捨てる
   loading: false,
   // オンライン
@@ -39,6 +43,19 @@ function el(tag, className, text) {
   if (className) e.className = className;
   if (text !== undefined) e.textContent = text;
   return e;
+}
+
+function loadPref(key, fallback) {
+  try {
+    const v = localStorage.getItem(key);
+    return v === null ? fallback : v === '1';
+  } catch {
+    return fallback;
+  }
+}
+
+function savePref(key, value) {
+  try { localStorage.setItem(key, value ? '1' : '0'); } catch { /* 無視 */ }
 }
 
 let noticeTimer = null;
@@ -77,9 +94,11 @@ function newGame(myColor) {
   app.lastMoveSq = null;
   app.cpuThinking = false;
   app.thinkText = '';
+  app.evalInfo = null;
   app.myRematch = false;
   app.oppRematch = false;
   showPlay();
+  requestEval();
 }
 
 function showPlay() {
@@ -96,6 +115,7 @@ function showMenu() {
   app.game = null;
   app.loading = false;
   app.cpuThinking = false;
+  if (evaluator) evaluator.cancel();
   $('#loading').classList.add('hidden');
   $('#screen-play').classList.add('hidden');
   $('#screen-menu').classList.remove('hidden');
@@ -155,6 +175,7 @@ function humanPlay(move) {
 function afterMove() {
   render();
   if (app.game.result) return;
+  requestEval();
   if (app.mode === 'cpu') cpuMove();
 }
 
@@ -259,16 +280,28 @@ async function cpuMove() {
     app.lastMoveSq = g.moves[g.moves.length - 1].to;
   }
   render();
-  if (!g.result) app.cpu.startPonder(g, res.ponder);
+  if (!g.result) {
+    app.cpu.startPonder(g, res.ponder);
+    requestEval();
+  }
 }
 
 let thinkRenderPending = false;
 function onThinkInfo(info) {
   if (!app.cpuThinking || !info.depth) return;
+  if (cpuProvidesEval() && info.score !== null && !info.bound) {
+    const cpuColor = 1 - app.myColor;
+    const blackScore = cpuColor === BLACK ? info.score : -info.score;
+    const mate = info.mate === null ? null : (blackScore > 0 ? 'black' : 'white');
+    app.evalInfo = { blackScore, mate };
+    scheduleEvalRender();
+  }
   const lv = app.level;
-  if (lv !== 'hard' && lv !== 'max') return;
+  if (lv !== 'hard' && lv !== 'max' && lv !== 'ultra') return;
   let evalText = '';
-  if (info.mate !== null) {
+  if (info.solver) {
+    evalText = `詰将棋ソルバーが${info.mate}手詰を発見`;
+  } else if (info.mate !== null) {
     const n = parseInt(info.mate, 10);
     evalText = n > 0 || info.mate === '+' ? '詰みを発見' : 'CPU が詰まされる筋';
   } else if (info.score !== null) {
@@ -303,7 +336,9 @@ async function undo() {
   }
   app.selected = null;
   app.lastMoveSq = g.ply ? g.moves[g.ply - 1].to : null;
+  app.evalInfo = null;
   render();
+  requestEval();
 }
 
 function resign() {
@@ -421,6 +456,109 @@ function requestRematch() {
 
 function maybeRematch() {
   if (app.myRematch && app.oppRematch && room.role === 'host') startOnlineGame(1 - app.hostColor);
+}
+
+// ---------- 形勢バー ----------
+
+let evaluator = null;
+let evaluatorReady = null;
+
+/** 最強・極では CPU 自身の読みの評価値を使う(別エンジンを動かさない) */
+function cpuProvidesEval() {
+  return app.mode === 'cpu' && LEVELS[app.level].engine === 'halfkp';
+}
+
+function requestEval() {
+  const g = app.game;
+  if (!app.showEval || !g || g.result || cpuProvidesEval() || app.evalUnavailable) return;
+  if (!evaluatorReady) {
+    evaluator = new Evaluator(onEval);
+    evaluatorReady = evaluator.init().catch((err) => {
+      app.evalUnavailable = err.message || String(err);
+      evaluatorReady = null;
+      renderEvalBar();
+      throw err;
+    });
+  }
+  evaluatorReady.then(() => {
+    if (app.game === g) evaluator.request(g);
+  }).catch(() => {});
+}
+
+function onEval(e) {
+  const g = app.game;
+  if (!g || e.ply !== g.ply || cpuProvidesEval()) return;
+  app.evalInfo = { blackScore: e.blackScore, mate: e.mate };
+  scheduleEvalRender();
+}
+
+let evalRenderPending = false;
+function scheduleEvalRender() {
+  if (evalRenderPending) return;
+  evalRenderPending = true;
+  requestAnimationFrame(() => {
+    evalRenderPending = false;
+    renderEvalBar();
+  });
+}
+
+/** 評価値(歩=100)から勝率の目安へ */
+const winRate = (cp) => 1 / (1 + Math.exp(-cp / 600));
+
+function judgeText(cp) {
+  const a = Math.abs(cp);
+  const [good, bad] = a < 150 ? ['互角', '互角']
+    : a < 400 ? ['やや有利', 'やや不利']
+      : a < 900 ? ['有利', '不利']
+        : a < 2000 ? ['優勢', '劣勢'] : ['勝勢', '敗勢'];
+  return cp >= 0 ? good : bad;
+}
+
+function renderEvalBar() {
+  const bar = $('#evalbar');
+  const g = app.game;
+  const visible = app.showEval && !!g && !!app.mode;
+  bar.classList.toggle('hidden', !visible);
+  if (!visible) return;
+  const persp = app.mode === 'local' ? bottomColor() : app.myColor;
+  const who = app.mode === 'local' ? `${COLOR_NAME[persp]}から見た形勢` : 'あなたから見た形勢';
+  let pct = 50;
+  let label = '';
+  let num = '';
+  let losing = false;
+  let pending = false;
+  if (g.result && g.result.reason !== 'disconnect') {
+    const w = g.result.winner;
+    pct = w === null ? 50 : w === persp ? 100 : 0;
+    label = w === null ? '引き分け' : w === persp ? '勝ち' : '負け';
+    losing = w !== null && w !== persp;
+  } else if (app.evalUnavailable && !cpuProvidesEval()) {
+    label = '利用できません';
+    num = 'このブラウザでは評価エンジンが動きません';
+    pending = true;
+  } else if (!app.evalInfo) {
+    label = '評価中…';
+    pending = true;
+  } else {
+    const { blackScore, mate } = app.evalInfo;
+    const s = persp === BLACK ? blackScore : -blackScore;
+    if (mate) {
+      const mine = mate === (persp === BLACK ? 'black' : 'white');
+      pct = mine ? 100 : 0;
+      label = mine ? '勝ち筋(詰みあり)' : '負け筋(詰まされる)';
+      losing = !mine;
+    } else {
+      pct = winRate(s) * 100;
+      label = judgeText(s);
+      losing = s <= -150;
+      num = `${Math.round(pct)}%  (${s > 0 ? '+' : ''}${s})`;
+    }
+  }
+  bar.className = `evalbar ${persp === BLACK ? 'black' : 'white'}${losing ? ' losing' : ''}${pending ? ' pending' : ''}`;
+  $('#eval-who').textContent = who;
+  $('#eval-label').textContent = label;
+  $('#eval-num').textContent = num;
+  $('#eval-fill').style.width = `${pct.toFixed(1)}%`;
 }
 
 // ---------- 描画 ----------
@@ -639,6 +777,8 @@ function render() {
   $('#btn-rematch').classList.toggle('hidden', !(over && app.mode === 'online' && g.result.reason !== 'disconnect'));
   $('#btn-rematch').disabled = app.myRematch || !room.isOpen;
   $('#btn-copy-kifu').disabled = !g || !g.ply;
+  $('#btn-evalbar').textContent = app.showEval ? '形勢バーを隠す' : '形勢バーを表示';
+  renderEvalBar();
 }
 
 // ---------- 棋譜コピー ----------
@@ -684,7 +824,7 @@ function buildMenu() {
 function syncMenu() {
   document.querySelectorAll('.level-btn').forEach((b) => b.classList.toggle('on', b.dataset.level === app.level));
   $('#level-note').textContent = LEVELS[app.level].note;
-  $('#time-row').classList.toggle('hidden', app.level !== 'max');
+  $('#time-row').classList.toggle('hidden', LEVELS[app.level].engine !== 'halfkp');
   document.querySelectorAll('#time-seg button').forEach((b) => b.classList.toggle('on', Number(b.dataset.ms) === app.maxTimeMs));
   document.querySelectorAll('#color-seg button').forEach((b) => b.classList.toggle('on', b.dataset.color === app.colorChoice));
 }
@@ -723,6 +863,12 @@ function init() {
 
   $('#btn-undo').addEventListener('click', undo);
   $('#btn-flip').addEventListener('click', () => { app.flipped = !app.flipped; render(); });
+  $('#btn-evalbar').addEventListener('click', () => {
+    app.showEval = !app.showEval;
+    savePref('shogi-evalbar', app.showEval);
+    render();
+    requestEval();
+  });
   $('#btn-resign').addEventListener('click', resign);
   $('#btn-again').addEventListener('click', () => {
     if (app.mode === 'cpu') startCpuGame();

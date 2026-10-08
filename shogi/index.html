@@ -39,6 +39,7 @@
             <button data-ms="3000">3秒</button>
             <button data-ms="5000" class="on">5秒</button>
             <button data-ms="10000">10秒</button>
+            <button data-ms="20000">20秒</button>
           </div>
         </div>
 
@@ -80,7 +81,8 @@
           <li>二歩・打ち歩詰め・行き所のない駒は指せません(自動で判定)。</li>
           <li>同じ局面が4回現れると千日手で引き分け。ただし王手をかけ続けた側の負けです。</li>
           <li>入玉宣言はありません。512手に達すると引き分けです。</li>
-          <li>CPU の「最強」は初回に約 30MB のデータを読み込みます。</li>
+          <li>CPU の「最強」「極」は初回に約 30MB のデータを読み込みます。</li>
+          <li>形勢バーは自分から見た勝率の目安です(「最強」「極」では CPU 自身の読み、それ以外は軽量エンジンで評価)。</li>
         </ul>
       </details>
     </section>
@@ -100,6 +102,14 @@
 
       <div class="table">
         <div class="board-area">
+          <div id="evalbar" class="evalbar hidden" aria-live="polite">
+            <div class="eval-head">
+              <span id="eval-who" class="eval-who"></span>
+              <span id="eval-label" class="eval-label"></span>
+              <span id="eval-num" class="eval-num"></span>
+            </div>
+            <div class="eval-track"><div class="eval-fill" id="eval-fill"></div><span class="eval-mid"></span></div>
+          </div>
           <div class="hand hand-top" id="hand-top"></div>
           <div class="board-wrap">
             <div class="files" id="files"></div>
@@ -124,6 +134,7 @@
       <div class="actions">
         <button id="btn-undo" class="ghost">待った</button>
         <button id="btn-flip" class="ghost">盤を反転</button>
+        <button id="btn-evalbar" class="ghost">形勢バー</button>
         <button id="btn-resign" class="ghost danger">投了</button>
         <button id="btn-again" class="primary">もう一局</button>
         <button id="btn-rematch" class="primary">再戦する</button>

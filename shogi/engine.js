@@ -1,25 +1,26 @@
 'use strict';
 
 /*
- * CPU プレイヤー(やねうら王 WebAssembly 版を USI プロトコルで操作)
+ * CPU プレイヤーと形勢評価(やねうら王 WebAssembly 版を USI プロトコルで操作)
  *   簡単 / 普通 / 難しい : やねうら王 + 評価関数 SuishoPetite(K-P, 小さい)
  *   最強                : やねうら王 + 評価関数 水匠5(NNUE HalfKP)、先読み(ponder)あり
+ *   極                  : 最強 + 詰将棋ソルバー KomoringHeights の並列探索 + 深読み定跡 + 大きい置換表
+ *   形勢バー            : K-P 版を別インスタンスで動かして評価
  */
 const ShogiEngine = (() => {
   const ENGINES = {
-    'k-p': {
-      script: 'engine/yaneuraou.k-p.js',
-      global: 'YaneuraOu_K_P',
-      wasm: 'engine/yaneuraou.k-p.wasm.gz',
-      wasmName: 'yaneuraou.k-p.wasm',
-    },
-    halfkp: {
-      script: 'engine/yaneuraou.halfkp.js',
-      global: 'YaneuraOu_HalfKP',
-      wasm: 'engine/yaneuraou.halfkp.wasm.gz',
-      wasmName: 'yaneuraou.halfkp.wasm',
+    'k-p': { script: 'engine/yaneuraou.k-p.js', global: 'YaneuraOu_K_P', wasm: 'engine/yaneuraou.k-p.wasm.gz' },
+    halfkp: { script: 'engine/yaneuraou.halfkp.js', global: 'YaneuraOu_HalfKP', wasm: 'engine/yaneuraou.halfkp.wasm.gz' },
+    kh: {
+      script: 'engine/yaneuraou.komoringheights-mate.js',
+      global: 'KomoringHeights_MATE',
+      wasm: 'engine/yaneuraou.komoringheights-mate.wasm.gz',
     },
   };
+  const BOOK_URL = 'engine/book-suisho5.db';
+  const BOOK_FILE = 'user_book1.db';
+
+  const byoyomi = (ms) => `go btime 0 wtime 0 byoyomi ${ms}`;
 
   const LEVELS = {
     easy: {
@@ -45,7 +46,7 @@ const ShogiEngine = (() => {
       note: '有段者向け。1手1秒しっかり読む',
       engine: 'k-p',
       multiPV: 1,
-      go: () => 'go btime 0 wtime 0 byoyomi 1000',
+      go: () => byoyomi(1000),
       temperature: 0,
       minDelay: 0,
     },
@@ -54,14 +55,27 @@ const ShogiEngine = (() => {
       note: '水匠5(NNUE)。常に最善手を探し、相手の手番中も読み続ける',
       engine: 'halfkp',
       multiPV: 1,
-      go: (maxMs) => `go btime 0 wtime 0 byoyomi ${maxMs}`,
+      go: byoyomi,
       temperature: 0,
       minDelay: 0,
       ponder: true,
     },
+    ultra: {
+      label: '極',
+      note: '最強 + 詰将棋ソルバー並列探索 + 深読み定跡 + 大きな置換表',
+      engine: 'halfkp',
+      multiPV: 1,
+      go: byoyomi,
+      temperature: 0,
+      minDelay: 0,
+      ponder: true,
+      book: true,
+      mateSolver: true,
+    },
   };
 
-  const loadedModules = {};
+  const instances = {};
+  const binaries = {};
 
   function loadScript(src) {
     return new Promise((resolve, reject) => {
@@ -73,7 +87,7 @@ const ShogiEngine = (() => {
     });
   }
 
-  async function fetchWasm(url, onProgress) {
+  async function fetchBytes(url, onProgress) {
     const res = await fetch(url);
     if (!res.ok) throw new Error(`${url} を読み込めませんでした (${res.status})`);
     const total = Number(res.headers.get('content-length')) || 0;
@@ -96,16 +110,22 @@ const ShogiEngine = (() => {
     return blob.arrayBuffer();
   }
 
-  async function loadModule(kind, onProgress) {
-    if (loadedModules[kind]) return loadedModules[kind];
+  /** エンジンを読み込む。instanceKey が違えば同じ種類でも別インスタンス(同時に探索できる) */
+  function loadModule(kind, onProgress, instanceKey = kind) {
+    if (instances[instanceKey]) return instances[instanceKey];
     const def = ENGINES[kind];
     const base = new URL('.', location.href);
     const promise = (async () => {
       if (!window.crossOriginIsolated) {
-        throw new Error('このブラウザでは CPU 対戦を利用できません(SharedArrayBuffer が無効です)。ページを再読み込みするか、Chrome / Edge / Firefox の最新版でお試しください');
+        throw new Error('このブラウザでは CPU を利用できません(SharedArrayBuffer が無効です)。ページを再読み込みするか、Chrome / Edge / Firefox の最新版でお試しください');
+      }
+      const url = new URL(def.wasm, base).href;
+      if (!binaries[url]) {
+        binaries[url] = fetchBytes(url, onProgress);
+        binaries[url].catch(() => { delete binaries[url]; });
       }
       const [wasmBinary] = await Promise.all([
-        fetchWasm(new URL(def.wasm, base).href, onProgress),
+        binaries[url],
         window[def.global] ? null : loadScript(new URL(def.script, base).href),
       ]);
       const engineBase = new URL('engine/', base).href;
@@ -114,10 +134,12 @@ const ShogiEngine = (() => {
         locateFile: (path) => engineBase + path,
         mainScriptUrlOrBlob: new URL(def.script, base).href,
       });
-      return new UsiEngine(mod);
+      const engine = new UsiEngine(mod);
+      await engine.request('usi', 'usiok');
+      return engine;
     })();
-    loadedModules[kind] = promise;
-    promise.catch(() => { delete loadedModules[kind]; });
+    instances[instanceKey] = promise;
+    promise.catch(() => { delete instances[instanceKey]; });
     return promise;
   }
 
@@ -125,7 +147,7 @@ const ShogiEngine = (() => {
     constructor(mod) {
       this.mod = mod;
       this.listeners = new Set();
-      this.ready = false;
+      this.options = {};
       mod.addMessageListener((line) => {
         for (const f of [...this.listeners]) f(line);
       });
@@ -148,10 +170,19 @@ const ShogiEngine = (() => {
       });
     }
 
-    async request(cmd, prefix, onLine) {
+    request(cmd, prefix, onLine) {
       const p = this.waitFor(prefix, onLine);
       this.send(cmd);
       return p;
+    }
+
+    /** 値が変わったオプションだけ送る */
+    setOptions(opts) {
+      for (const [k, v] of Object.entries(opts)) {
+        if (this.options[k] === String(v)) continue;
+        this.options[k] = String(v);
+        this.send(`setoption name ${k} value ${v}`);
+      }
     }
   }
 
@@ -175,11 +206,71 @@ const ShogiEngine = (() => {
       multipv: Number(get('multipv')) || 1,
       score,
       mate: scoreMatch && scoreMatch[1] === 'mate' ? scoreMatch[2] : null,
+      bound: / (lowerbound|upperbound)/.test(line),
       pv: pv ? pv[1].split(' ') : [],
     };
   }
 
   const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
+
+  function strongOptions(level) {
+    const cores = navigator.hardwareConcurrency || 2;
+    const mem = navigator.deviceMemory; // Chrome 系のみ。不明なら控えめに
+    // 極は詰将棋ソルバーに1コア回す
+    const reserve = level.mateSolver && cores >= 4 ? 2 : 1;
+    const threads = Math.max(1, Math.min(cores - reserve, 16));
+    let hash;
+    if (level.book) hash = mem >= 8 ? 1024 : mem >= 4 ? 512 : 256;
+    else hash = mem === undefined || mem >= 4 ? 256 : 64;
+    return { Threads: threads, USI_Hash: hash, USI_Ponder: true };
+  }
+
+  let bookText = null;
+  async function loadBook(engine) {
+    if (engine.bookLoaded) return;
+    if (!bookText) {
+      const res = await fetch(new URL(BOOK_URL, location.href));
+      if (!res.ok) throw new Error('定跡ファイルを読み込めませんでした');
+      bookText = await res.text();
+    }
+    engine.mod.FS.writeFile(`/${BOOK_FILE}`, bookText);
+    engine.bookLoaded = true;
+  }
+
+  /** 詰将棋ソルバー(KomoringHeights)。王手の連続で詰むかを df-pn で調べる */
+  class MateSolver {
+    constructor(engine) {
+      this.engine = engine;
+      this.running = null;
+    }
+
+    static async create() {
+      const engine = await loadModule('kh');
+      engine.setOptions({ USI_Hash: 64, Threads: 1, PvInterval: 0, RootIsAndNodeIfChecked: false });
+      await engine.request('isready', 'readyok');
+      return new MateSolver(engine);
+    }
+
+    /** 詰みが見つかれば手順(USI の配列)、見つからなければ null */
+    solve(usiPosition, ms) {
+      const e = this.engine;
+      e.send(usiPosition);
+      const p = e.request(`go mate ${ms}`, 'checkmate').then((line) => {
+        this.running = null;
+        const moves = line.split(' ').slice(1).filter(Boolean);
+        if (!moves.length || ['nomate', 'timeout', 'notimplemented'].includes(moves[0])) return null;
+        return moves;
+      });
+      this.running = p;
+      return p;
+    }
+
+    async stop() {
+      if (!this.running) return;
+      this.engine.send('stop');
+      await this.running;
+    }
+  }
 
   class CpuPlayer {
     constructor(levelKey, { maxTimeMs = 5000, onInfo } = {}) {
@@ -188,40 +279,49 @@ const ShogiEngine = (() => {
       this.maxTimeMs = maxTimeMs;
       this.onInfo = onInfo;
       this.engine = null;
+      this.mate = null;
       this.ponder = null; // { usiPosition, move, done: Promise<bestmove line> }
-      this.busy = Promise.resolve();
+      this.thinking = false;
     }
 
     async init(onProgress) {
-      this.engine = await loadModule(this.level.engine, onProgress);
+      const lv = this.level;
+      this.engine = await loadModule(lv.engine, onProgress);
       const e = this.engine;
-      if (!e.ready) {
-        await e.request('usi', 'usiok');
-        const strong = this.level.engine === 'halfkp';
-        const cores = navigator.hardwareConcurrency || 2;
-        const threads = strong ? Math.max(1, Math.min(cores - 1, 8)) : 1;
-        const bigMemory = (navigator.deviceMemory || 4) >= 4;
-        const hash = strong ? (bigMemory ? 256 : 64) : 32;
-        for (const [k, v] of [
-          ['Threads', threads],
-          ['USI_Hash', hash],
-          ['USI_Ponder', strong],
-          ['EnteringKingRule', 'NoEnteringKing'],
-          ['MaxMovesToDraw', ShogiCore.MAX_MOVES],
-          ['NetworkDelay', 0],
-          ['NetworkDelay2', 0],
-          ['MinimumThinkingTime', 1000],
-          ['PvInterval', 300],
-        ]) e.send(`setoption name ${k} value ${v}`);
-        await e.request('isready', 'readyok');
-        e.ready = true;
+      const common = {
+        EnteringKingRule: 'NoEnteringKing',
+        MaxMovesToDraw: ShogiCore.MAX_MOVES,
+        NetworkDelay: 0,
+        NetworkDelay2: 0,
+        MinimumThinkingTime: 1000,
+        PvInterval: 300,
+        MultiPV: lv.multiPV,
+      };
+      const strength = lv.engine === 'halfkp' ? strongOptions(lv) : { Threads: 1, USI_Hash: 32, USI_Ponder: false };
+      let book = { USI_OwnBook: false, BookFile: 'no_book' };
+      if (lv.book) {
+        await loadBook(e);
+        book = {
+          USI_OwnBook: true,
+          BookDir: '.',
+          BookFile: BOOK_FILE,
+          BookMoves: 32,
+          BookEvalDiff: 0,           // 最善の1手だけ
+          BookEvalBlackLimit: -99999,
+          BookEvalWhiteLimit: -99999,
+          BookDepthLimit: 0,
+          IgnoreBookPly: true,
+          NarrowBook: false,
+          ConsiderBookMoveCount: false,
+        };
       }
-      e.send(`setoption name MultiPV value ${this.level.multiPV}`);
-      e.send('usinewgame');
+      e.setOptions({ ...common, ...strength, ...book });
       await e.request('isready', 'readyok');
+      e.send('usinewgame');
+      if (lv.mateSolver && !this.mate) this.mate = await MateSolver.create();
     }
 
-    /** 先読み中・思考中の探索を止める */
+    /** 先読み中の探索を止める */
     async cancel() {
       if (this.ponder) {
         const p = this.ponder;
@@ -234,10 +334,11 @@ const ShogiEngine = (() => {
     /** 対局をやめるとき: 思考中・先読み中の探索を止める(結果は捨てる) */
     abort() {
       if (this.thinking || this.ponder) this.engine.send('stop');
+      if (this.mate) this.mate.stop();
       this.ponder = null;
     }
 
-    /** game の局面で CPU の指し手(USI 文字列 or 'resign')を返す */
+    /** game の局面で CPU の指し手を返す: { move: USI 文字列 | 'resign', ponder } */
     async think(game) {
       this.thinking = true;
       try {
@@ -250,18 +351,37 @@ const ShogiEngine = (() => {
     async search(game) {
       const e = this.engine;
       const start = Date.now();
+      const infos = [];
       const onLine = (line) => {
-        if (line.startsWith('info') && line.includes(' pv ') && this.onInfo) this.onInfo(parseInfo(line));
+        if (!line.startsWith('info') || !line.includes(' pv ')) return;
+        const info = parseInfo(line);
+        infos.push(info);
+        if (this.onInfo) this.onInfo(info);
       };
+      const position = game.usiPosition();
+
+      // 極: 詰将棋ソルバーを並行して走らせ、詰みが見つかれば本探索を打ち切る
+      let mateMoves = null;
+      let mainDone = false;
+      // 王手をかけられている局面では詰将棋ソルバーは使わない(受け方の手順が返るため)
+      const useMate = this.mate && !game.pos.inCheck();
+      const mateP = useMate ? this.mate.solve(position, Math.max(300, this.maxTimeMs - 200)) : null;
+      if (mateP) {
+        mateP.then((moves) => {
+          if (moves && game.pos.findMove(moves[0])) {
+            mateMoves = moves;
+            if (!mainDone) e.send('stop');
+          }
+        });
+      }
 
       let bestLine = null;
-      const position = game.usiPosition();
       if (this.ponder) {
         const p = this.ponder;
         this.ponder = null;
         if (p.usiPosition === position) {
           // 予想どおりの手だった → そのまま読みを続けて着手
-          e.waitFor('bestmove', onLine); // 読み筋の表示用
+          e.waitFor('bestmove', onLine);
           e.send('ponderhit');
           bestLine = await p.done;
         } else {
@@ -269,23 +389,32 @@ const ShogiEngine = (() => {
           await p.done;
         }
       }
-
-      const infos = [];
       if (!bestLine) {
         e.send(position);
-        bestLine = await e.request(this.level.go(this.maxTimeMs), 'bestmove', (line) => {
-          onLine(line);
-          if (line.startsWith('info') && line.includes(' pv ')) infos.push(parseInfo(line));
-        });
+        bestLine = await e.request(this.level.go(this.maxTimeMs), 'bestmove', onLine);
+      }
+      mainDone = true;
+      if (mateP) {
+        await this.mate.stop();
+        await mateP;
       }
 
       const [, best, , ponderMove] = bestLine.split(' ');
       let move = best;
-      if (this.level.temperature > 0 && infos.length) move = this.pickSoftly(infos, best);
+      let ponder = ponderMove || null;
+      if (mateMoves && !(infos.length && infos[infos.length - 1].mate && !infos[infos.length - 1].mate.startsWith('-'))) {
+        move = mateMoves[0];
+        ponder = mateMoves[1] || null;
+        if (this.onInfo) this.onInfo({ depth: mateMoves.length, score: 100000 - mateMoves.length, mate: String(mateMoves.length), pv: mateMoves, solver: true });
+      }
+      if (this.level.temperature > 0 && infos.length) {
+        const picked = this.pickSoftly(infos, best);
+        if (picked !== best) { move = picked; ponder = null; }
+      }
 
       const wait = this.level.minDelay - (Date.now() - start);
       if (wait > 0) await sleep(wait);
-      return { move, ponder: move === best ? ponderMove : null };
+      return { move, ponder };
     }
 
     /** 複数の候補手から、評価値が高いほど選ばれやすいように確率で選ぶ */
@@ -317,14 +446,78 @@ const ShogiEngine = (() => {
       const e = this.engine;
       e.send(position);
       const done = e.waitFor('bestmove');
-      e.send(`${this.level.go(this.maxTimeMs).replace('go ', 'go ponder ')}`);
+      e.send(this.level.go(this.maxTimeMs).replace('go ', 'go ponder '));
       this.ponder = { usiPosition: position, move: ponderMove, done };
-    }
-
-    async dispose() {
-      await this.cancel();
     }
   }
 
-  return { LEVELS, CpuPlayer, loadModule };
+  /**
+   * 形勢評価(K-P 版を CPU とは別インスタンスで動かす)。
+   * 新しい局面が来たら古い探索は止め、常に最新の局面だけを評価する。
+   */
+  class Evaluator {
+    constructor(onEval) {
+      this.onEval = onEval;
+      this.engine = null;
+      this.pending = null;
+      this.current = null;
+      this.busy = false;
+    }
+
+    async init() {
+      this.engine = await loadModule('k-p', null, 'evaluator');
+      this.engine.setOptions({
+        Threads: 1,
+        USI_Hash: 16,
+        MultiPV: 1,
+        EnteringKingRule: 'NoEnteringKing',
+        NetworkDelay: 0,
+        NetworkDelay2: 0,
+        PvInterval: 0,
+        USI_OwnBook: false,
+      });
+      await this.engine.request('isready', 'readyok');
+    }
+
+    /** game の現在局面を評価する。結果は onEval({ ply, blackScore, mate }) */
+    request(game) {
+      if (!this.engine || game.result) return;
+      this.pending = { position: game.usiPosition(), side: game.pos.side, ply: game.ply };
+      this.pump();
+    }
+
+    cancel() {
+      this.pending = null;
+      if (this.current) this.engine.send('stop');
+    }
+
+    async pump() {
+      if (this.busy) {
+        if (this.current) this.engine.send('stop');
+        return;
+      }
+      this.busy = true;
+      while (this.pending) {
+        const job = this.pending;
+        this.pending = null;
+        this.current = job;
+        const emit = (info) => {
+          if (this.pending || info.score === null) return;
+          const blackScore = job.side === ShogiCore.BLACK ? info.score : -info.score;
+          const mate = info.mate === null ? null : (info.score > 0) === (job.side === ShogiCore.BLACK) ? 'black' : 'white';
+          this.onEval({ ply: job.ply, blackScore, mate, depth: info.depth });
+        };
+        this.engine.send(job.position);
+        await this.engine.request('go movetime 800', 'bestmove', (line) => {
+          if (!line.startsWith('info') || !line.includes(' score ')) return;
+          const info = parseInfo(line);
+          if (!info.bound && info.depth >= 6) emit(info);
+        });
+        this.current = null;
+      }
+      this.busy = false;
+    }
+  }
+
+  return { LEVELS, CpuPlayer, Evaluator, MateSolver, loadModule, parseInfo };
 })();
